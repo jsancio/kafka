@@ -21,6 +21,13 @@
   "flexibleVersions": "1+",
   "fields": [
     { "name": "CorrelationId", "type": "int32", "versions": "0+",
-      "about": "The correlation ID of this response." }
+      "about": "The correlation ID of this response." },
+    { "name": "ConsistencyState", "type": "ConsistencyState", "versions": "1+", "taggedVersions": "1+", "tag": 0,
+      "about": "Consistency context for the request.", "fields": [
+      { "name": "ClusterId", "type": "string", "versions": "1+", "nullableVersions": "1+", "default": "null",
+        "about": "The clusterId if known. This is used to validate request against the expected cluster." },
+      { "name": "ConsistencyToken", "type": "int64", "versions": "1+", "default": "-1",
+        "about": "The latest consistency token seen by the client." }
+    ]}
   ]
 }

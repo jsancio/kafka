@@ -39,6 +39,13 @@
     // Since the client is sending the ApiVersionsRequest in order to discover what
     // versions are supported, the client does not know the best version to use.
     { "name": "ClientId", "type": "string", "versions": "1+", "nullableVersions": "1+", "flexibleVersions": "none",
-      "about": "The client ID string." }
+      "about": "The client ID string." },
+    { "name": "ConsistencyState", "type": "ConsistencyState", "versions": "2+", "taggedVersions": "2+", "tag": 0,
+      "about": "Consistency context for the request.", "fields": [
+      { "name": "ClusterId", "type": "string", "versions": "2+", "nullableVersions": "2+", "default": "null",
+        "about": "The clusterId if known. This is used to validate request against the expected cluster." },
+      { "name": "ConsistencyToken", "type": "int64", "versions": "2+", "default": "-1",
+        "about": "The latest consistency token seen by the client." }
+    ]}
   ]
 }
