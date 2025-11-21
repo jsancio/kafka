@@ -19,28 +19,54 @@ package org.apache.kafka.clients;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.producer.Producer;
-import org.apache.kafka.common.metadata.ConsistencyContext;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serializer;
 
 import java.util.Map;
 
-// TODO: document this..
+/**
+ * Object for creating Kafka clients with a shared consistency.
+ *
+ * This object allows the user to create Admin clients, Producer clients and Consumer clients with
+ * a shared consistency.
+ *
+ * For example, if you would like to create an Admin client to create ACLs and a topic, and have
+ * the producer and consumer to see a consistent view of the cluster metadata then use the same
+ * factory to create all of the associated clients.
+ *
+ * This object implements three important menthods. The method {@code admin} can be used to create
+ * Admin clients. The method {@code producer} can be used to create Producer clients. The
+ * method {@code consumer} can be used to create Consumer clients.
+ */
 public final class Factory {
     private final ConsistencyContextStore latestConsistencyContext;
 
-    // TODO: document this...
-    Factory(ConsistencyContext latestConsistencyContext) {
-        this.latestConsistencyContext = ConsistencyContextStore.of(latestConsistencyContext);
+    /**
+     * Creates a Factory object.
+     *
+     * @param store the store for storing the latest consistency context
+     */
+    Factory(ConsistencyContextStore store) {
+        this.latestConsistencyContext = store;
     }
 
-    // TODO: document this...
+    /**
+     * Creates an Admin client.
+     *
+     * @param config the admin client configuration
+     */
     public Admin admin(Map<String, Object> config) {
         // TODO: implement this...
         return null;
     }
 
-    // TODO: document this..
+    /**
+     * Creates a Producer client.
+     *
+     * @param config the producer configuration
+     * @param keySerializer the serializer for the key
+     * @param ValueSerializer the serializer for the value
+     */
     public <K, V> Producer<K, V> producer(
         Map<String, Object> config,
         Serializer<K> keySerializer,
@@ -50,7 +76,13 @@ public final class Factory {
         return null;
     }
 
-    // TODO: document this..
+    /**
+     * Creates a Consumer clients.
+     *
+     * @param config the consumer configuration
+     * @param keyDeserializer the deserializer for the key
+     * @param valueDeserializer the deserializer for the value
+     */
     public <K, V> Consumer<K, V> consumer(
         Map<String, Object> config,
         Deserializer<K> keyDeserializer,
