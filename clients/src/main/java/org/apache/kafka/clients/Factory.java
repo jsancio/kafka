@@ -39,7 +39,7 @@ import java.util.Map;
  * method {@code consumer} can be used to create Consumer clients.
  */
 public final class Factory {
-    private final ConsistencyContextStore latestConsistencyContext;
+    private final ConsistencyContextStore store;
 
     /**
      * Creates a Factory object.
@@ -47,7 +47,7 @@ public final class Factory {
      * @param store the store for storing the latest consistency context
      */
     Factory(ConsistencyContextStore store) {
-        this.latestConsistencyContext = store;
+        this.store = store;
     }
 
     /**
