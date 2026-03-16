@@ -43,11 +43,17 @@ public interface RequestSender {
      * @param destination the destination for the request
      * @param requestSupplier the default constructor for the request
      * @param currentTimeMs the current time
+     * TODO: fix this documenation
      * @return the request timeout if the request was sent; otherwise {@code Optional.empty()}
      */
-    OptionalLong send(
+    SendResult send(
         Node destination,
         Supplier<ApiMessage> requestSupplier,
         long currentTimeMs
     );
+
+    /**
+     * TODO: write documentation
+     */
+    public static record SendResult(int correlationId, OptionalLong timeout);
 }

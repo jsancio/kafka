@@ -49,10 +49,7 @@ import org.apache.kafka.server.util.RequestAndCompletionHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -123,10 +120,12 @@ public class KafkaNetworkChannel implements NetworkChannel {
                 request.createdTimeMs(),
                 node,
                 buildRequest(request.data()),
-                response -> sendOnComplete(request, response)
+                response -> sendOnComplete(request, response),
+                Optional.empty()
             ));
-        } else
+        } else {
             sendCompleteFuture(request, errorResponse(request.data(), Errors.BROKER_NOT_AVAILABLE));
+        }
     }
 
     private void sendCompleteFuture(RaftRequest.Outbound request, ApiMessage message) {
