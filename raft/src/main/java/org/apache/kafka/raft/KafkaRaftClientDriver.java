@@ -26,6 +26,7 @@ import org.apache.kafka.server.util.ShutdownableThread;
 import org.slf4j.Logger;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * A single-threaded driver for {@link KafkaRaftClient}. Client APIs will only do useful work
@@ -101,7 +102,7 @@ public class KafkaRaftClientDriver<T> extends ShutdownableThread {
         return client.isRunning() && !isThreadFailed();
     }
 
-    public CompletableFuture<ApiMessage> handleRequest(
+    public CompletionStage<ApiMessage> handleRequest(
         RequestContext context,
         RequestHeader header,
         ApiMessage request,
@@ -117,7 +118,7 @@ public class KafkaRaftClientDriver<T> extends ShutdownableThread {
 
         client.handle(inboundRequest);
 
-        return inboundRequest.completion.thenApply(RaftMessage::data);
+        return inboundRequest.completion().thenApply(RaftMessage::data);
     }
 
     public KafkaRaftClient<T> client() {

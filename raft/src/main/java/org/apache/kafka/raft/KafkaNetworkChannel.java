@@ -116,25 +116,27 @@ public class KafkaNetworkChannel implements NetworkChannel {
     public void send(RaftRequest.Outbound request) {
         Node node = request.destination();
         if (node != null) {
-            requestThread.sendRequest(new RequestAndCompletionHandler(
-                request.createdTimeMs(),
-                node,
-                buildRequest(request.data()),
-                response -> sendOnComplete(request, response),
-                Optional.empty()
-            ));
+            requestThread.sendRequest(
+                new RequestAndCompletionHandler(
+                    request.createdTimeMs(),
+                    node,
+                    buildRequest(request.data()),
+                    response -> sendOnComplete(request, response)
+                )
+            );
         } else {
             sendCompleteFuture(request, errorResponse(request.data(), Errors.BROKER_NOT_AVAILABLE));
         }
     }
 
     private void sendCompleteFuture(RaftRequest.Outbound request, ApiMessage message) {
-        RaftResponse.Inbound response = new RaftResponse.Inbound(
+        request.completeResponse(
+            new RaftResponse.Inbound(
                 request.correlationId(),
                 message,
                 request.destination()
+            )
         );
-        request.completion.complete(response);
     }
 
     private void sendOnComplete(RaftRequest.Outbound request, ClientResponse clientResponse) {

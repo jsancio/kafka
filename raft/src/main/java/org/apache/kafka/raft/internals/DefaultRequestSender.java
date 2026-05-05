@@ -18,15 +18,11 @@ package org.apache.kafka.raft.internals;
 
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.network.ListenerName;
-import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.ApiMessage;
-import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.raft.NetworkChannel;
 import org.apache.kafka.raft.RaftMessageQueue;
 import org.apache.kafka.raft.RaftRequest;
-import org.apache.kafka.raft.RaftResponse;
-import org.apache.kafka.raft.RaftUtil;
 import org.apache.kafka.raft.RequestManager;
 
 import org.slf4j.Logger;
@@ -67,9 +63,7 @@ public final class DefaultRequestSender  implements RequestSender {
             long remainingBackoffMs = requestManager.remainingBackoffMs(destination, currentTimeMs);
             logger.debug("Connection for {} is backing off for {} ms", destination, remainingBackoffMs);
             return OptionalLong.empty();
-        }
-
-        if (!requestManager.isReady(destination, currentTimeMs)) {
+        } else if (!requestManager.isReady(destination, currentTimeMs)) {
             long remainingMs = requestManager.remainingRequestTimeMs(destination, currentTimeMs);
             logger.debug("Connection for {} has a pending request for {} ms", destination, remainingMs);
             return OptionalLong.empty();
@@ -82,24 +76,9 @@ public final class DefaultRequestSender  implements RequestSender {
             correlationId,
             request,
             destination,
-            currentTimeMs
+            currentTimeMs,
+            (ignored, response) -> messageQueue.add(response)
         );
-
-        requestMessage.completion.whenComplete((response, exception) -> {
-            if (exception != null) {
-                ApiKeys api = ApiKeys.forId(request.apiKey());
-                Errors error = Errors.forException(exception);
-                ApiMessage errorResponse = RaftUtil.errorResponse(api, error);
-
-                response = new RaftResponse.Inbound(
-                    correlationId,
-                    errorResponse,
-                    destination
-                );
-            }
-
-            messageQueue.add(response);
-        });
 
         requestManager.onRequestSent(destination, correlationId, currentTimeMs);
         channel.send(requestMessage);

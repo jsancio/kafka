@@ -23,6 +23,7 @@ import org.apache.kafka.common.protocol.ApiMessage;
 import org.apache.kafka.common.protocol.Errors;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 public abstract class RaftRequest implements RaftMessage {
     private final int correlationId;
@@ -50,6 +51,8 @@ public abstract class RaftRequest implements RaftMessage {
     }
 
     public static final class Inbound extends RaftRequest {
+        private final CompletableFuture<RaftResponse.Outbound> completion = new CompletableFuture<>();
+
         private final short apiVersion;
         private final ListenerName listenerName;
 
@@ -74,6 +77,14 @@ public abstract class RaftRequest implements RaftMessage {
             return listenerName;
         }
 
+        public CompletionStage<RaftResponse.Outbound> completion() {
+            return completion;
+        }
+
+        public void completeResponse(RaftResponse.Outbound response) {
+            completion.complete(response);
+        }
+
         @Override
         public String toString() {
             return String.format(
@@ -89,8 +100,9 @@ public abstract class RaftRequest implements RaftMessage {
     }
 
     public static final class Outbound extends RaftRequest {
-        private final Node destination;
         private final CompletableFuture<RaftResponse.Inbound> completion = new CompletableFuture<>();
+
+        private final Node destination;
 
         public Outbound(
             int correlationId,
@@ -123,6 +135,10 @@ public abstract class RaftRequest implements RaftMessage {
             return destination;
         }
 
+        public void completeResponse(RaftResponse.Inbound response) {
+            completion.complete(response);
+        }
+
         @Override
         public String toString() {
             return String.format(
@@ -136,7 +152,7 @@ public abstract class RaftRequest implements RaftMessage {
     }
 
     // TODO: write documentation
-    interface ResponseHandler {
+    public interface ResponseHandler {
         void handle(Outbound request, RaftResponse.Inbound reponse);
     }
 }

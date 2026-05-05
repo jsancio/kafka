@@ -2821,7 +2821,7 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
             }
 
             RaftResponse.Outbound responseMessage = new RaftResponse.Outbound(request.correlationId(), message);
-            request.completion.complete(responseMessage);
+            request.completeResponse(responseMessage);
             logger.trace("Sent response {} to inbound request {}", responseMessage, request);
         });
     }
@@ -2874,24 +2874,9 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
                 correlationId,
                 request,
                 destination,
-                currentTimeMs
+                currentTimeMs,
+                (ignore, response) -> messageQueue.add(response)
             );
-
-            requestMessage.completion.whenComplete((response, exception) -> {
-                if (exception != null) {
-                    ApiKeys api = ApiKeys.forId(request.apiKey());
-                    Errors error = Errors.forException(exception);
-                    ApiMessage errorResponse = RaftUtil.errorResponse(api, error);
-
-                    response = new RaftResponse.Inbound(
-                        correlationId,
-                        errorResponse,
-                        destination
-                    );
-                }
-
-                messageQueue.add(response);
-            });
 
             requestManager.onRequestSent(destination, correlationId, currentTimeMs);
             channel.send(requestMessage);
