@@ -112,6 +112,7 @@ import java.util.OptionalLong;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -2826,17 +2827,22 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
         });
     }
 
-    private void handleInboundMessage(RaftMessage message, long currentTimeMs) {
+    private void handleInboundMessage(
+        RaftMessage message,
+        CompletableFuture<RaftMessage> future,
+        long currentTimeMs
+    ) {
         logger.trace("Received inbound message {}", message);
 
         if (message instanceof RaftRequest.Inbound request) {
-            handleRequest(request, currentTimeMs);
+            handleRequest(request, future, currentTimeMs);
         } else if (message instanceof RaftResponse.Inbound response) {
             if (requestManager.isResponseExpected(response.source(), response.correlationId())) {
                 handleResponse(response, currentTimeMs);
             } else {
                 logger.debug("Ignoring response {} since it is no longer needed", response);
             }
+            // TODO: Should this code be a good citizen and complete the future? What value should it be?
         } else {
             throw new IllegalArgumentException("Unexpected message " + message);
         }
@@ -2874,12 +2880,15 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
                 correlationId,
                 request,
                 destination,
-                currentTimeMs,
-                (ignore, response) -> messageQueue.add(response)
+                currentTimeMs
             );
 
             requestManager.onRequestSent(destination, correlationId, currentTimeMs);
-            channel.send(requestMessage);
+            channel
+                .send(requestMessage)
+                .whenComplete(
+                    (response, exception) -> messageQueue.add(new RaftMessageQueue.QueueEntry(response))
+                );
             requestSent = true;
             logger.trace("Sent outbound request: {}", requestMessage);
         }
@@ -3631,8 +3640,17 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
      *
      * @param request The inbound request
      */
-    public void handle(RaftRequest.Inbound request) {
-        messageQueue.add(Objects.requireNonNull(request));
+    public CompletionStage<RaftResponse.Outbound> handle(RaftRequest.Inbound request) {
+        var entry = new RaftMessageQueue.QueueEntry(Objects.requireNonNull(request));
+        messageQueue.add(entry);
+        return entry.future().thenApply(message -> {
+            if (message instanceof RaftResponse.Outbound response) {
+                return response;
+            } else {
+                logger.error("Message must be a response: {}", message);
+                throw new IllegalStateException("KRaft didn't return an expected response");
+            }
+        });
     }
 
     /**
@@ -3656,14 +3674,12 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
         long startWaitTimeMs = time.milliseconds();
         kafkaRaftMetrics.updatePollStart(startWaitTimeMs);
 
-        RaftMessage message = messageQueue.poll(pollTimeoutMs);
+        var maybeEntry = messageQueue.poll(pollTimeoutMs);
 
         long endWaitTimeMs = time.milliseconds();
         kafkaRaftMetrics.updatePollEnd(endWaitTimeMs);
 
-        if (message != null) {
-            handleInboundMessage(message, endWaitTimeMs);
-        }
+        maybeEntry.ifPresent(entry -> handleInboundMessage(entry.message(), entry.future(), endWaitTimeMs));
 
         pollListeners();
     }

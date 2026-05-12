@@ -685,7 +685,9 @@ class ControllerApis(
     buildResponse: ApiMessage => AbstractResponse
   ): CompletableFuture[Unit] = {
     val requestBody = request.body[AbstractRequest]
-    val future = raftManager.handleRequest(request.context, request.header, requestBody.data, time.milliseconds())
+    val future = raftManager
+      .handleRequest(request.context, request.header, requestBody.data, time.milliseconds())
+      .toCompletableFuture
     future.handle[Unit] { (responseData, exception) =>
       val response = if (exception != null) {
         requestBody.getErrorResponse(exception)

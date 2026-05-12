@@ -18,12 +18,7 @@ package org.apache.kafka.raft;
 
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.network.ListenerName;
-import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.ApiMessage;
-import org.apache.kafka.common.protocol.Errors;
-
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 
 public abstract class RaftRequest implements RaftMessage {
     private final int correlationId;
@@ -51,8 +46,6 @@ public abstract class RaftRequest implements RaftMessage {
     }
 
     public static final class Inbound extends RaftRequest {
-        private final CompletableFuture<RaftResponse.Outbound> completion = new CompletableFuture<>();
-
         private final short apiVersion;
         private final ListenerName listenerName;
 
@@ -77,14 +70,6 @@ public abstract class RaftRequest implements RaftMessage {
             return listenerName;
         }
 
-        public CompletionStage<RaftResponse.Outbound> completion() {
-            return completion;
-        }
-
-        public void completeResponse(RaftResponse.Outbound response) {
-            completion.complete(response);
-        }
-
         @Override
         public String toString() {
             return String.format(
@@ -100,43 +85,20 @@ public abstract class RaftRequest implements RaftMessage {
     }
 
     public static final class Outbound extends RaftRequest {
-        private final CompletableFuture<RaftResponse.Inbound> completion = new CompletableFuture<>();
-
         private final Node destination;
 
         public Outbound(
             int correlationId,
             ApiMessage data,
             Node destination,
-            long createdTimeMs,
-            ResponseHandler handler
+            long createdTimeMs
         ) {
             super(correlationId, data, createdTimeMs);
             this.destination = destination;
-
-            completion.whenComplete((response, exception) -> {
-                if (exception != null) {
-                    ApiKeys api = ApiKeys.forId(data.apiKey());
-                    Errors error = Errors.forException(exception);
-                    ApiMessage errorResponse = RaftUtil.errorResponse(api, error);
-
-                    response = new RaftResponse.Inbound(
-                        correlationId,
-                        errorResponse,
-                        destination
-                    );
-                }
-
-                handler.handle(this, response);
-            });
         }
 
         public Node destination() {
             return destination;
-        }
-
-        public void completeResponse(RaftResponse.Inbound response) {
-            completion.complete(response);
         }
 
         @Override
@@ -149,10 +111,5 @@ public abstract class RaftRequest implements RaftMessage {
                 destination
             );
         }
-    }
-
-    // TODO: write documentation
-    public interface ResponseHandler {
-        void handle(Outbound request, RaftResponse.Inbound reponse);
     }
 }

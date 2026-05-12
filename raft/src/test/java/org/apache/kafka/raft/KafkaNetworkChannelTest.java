@@ -252,9 +252,11 @@ public class KafkaNetworkChannelTest {
         RaftRequest.Outbound request,
         Errors expectedError
     ) throws ExecutionException, InterruptedException {
-        assertTrue(request.completion.isDone());
+        var future = request.completion().toCompletableFuture();
 
-        RaftResponse.Inbound response = request.completion.get();
+        assertTrue(future.isDone());
+
+        RaftResponse.Inbound response = future.get();
         assertEquals(request.destination(), response.source());
         assertEquals(request.correlationId(), response.correlationId());
         assertEquals(request.data().apiKey(), response.data().apiKey());

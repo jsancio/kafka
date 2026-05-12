@@ -76,12 +76,16 @@ public final class DefaultRequestSender  implements RequestSender {
             correlationId,
             request,
             destination,
-            currentTimeMs,
-            (ignored, response) -> messageQueue.add(response)
+            currentTimeMs
         );
 
         requestManager.onRequestSent(destination, correlationId, currentTimeMs);
-        channel.send(requestMessage);
+        channel
+            .send(requestMessage)
+            .whenComplete(
+                (response, exception) -> messageQueue.add(new RaftMessageQueue.QueueEntry(response))
+            );
+
         logger.trace("Sent outbound request: {}", requestMessage);
 
         return OptionalLong.of(requestManager.remainingRequestTimeMs(destination, currentTimeMs));

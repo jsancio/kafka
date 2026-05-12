@@ -18,6 +18,8 @@ package org.apache.kafka.raft;
 
 import org.apache.kafka.common.network.ListenerName;
 
+import java.util.concurrent.CompletionStage;
+
 /**
  * A simple network interface with few assumptions. We do not assume ordering
  * of requests or even that every outbound request will receive a response.
@@ -34,7 +36,7 @@ public interface NetworkChannel extends AutoCloseable {
      *
      * @param request outbound request to send
      */
-    void send(RaftRequest.Outbound request);
+    CompletionStage<RaftResponse.Inbound> send(RaftRequest.Outbound request);
 
     /**
      * The name of listener used when sending requests.
@@ -42,6 +44,4 @@ public interface NetworkChannel extends AutoCloseable {
      * @return the name of the listener
      */
     ListenerName listenerName();
-
-    default void close() throws InterruptedException {}
 }

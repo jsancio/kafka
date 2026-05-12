@@ -25,7 +25,6 @@ import org.apache.kafka.server.util.ShutdownableThread;
 
 import org.slf4j.Logger;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /**
@@ -116,9 +115,7 @@ public class KafkaRaftClientDriver<T> extends ShutdownableThread {
             createdTimeMs
         );
 
-        client.handle(inboundRequest);
-
-        return inboundRequest.completion().thenApply(RaftMessage::data);
+        return client.handle(inboundRequest).thenApply(RaftMessage::data);
     }
 
     public KafkaRaftClient<T> client() {
