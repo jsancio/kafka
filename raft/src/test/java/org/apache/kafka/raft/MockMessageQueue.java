@@ -17,6 +17,7 @@
 package org.apache.kafka.raft;
 
 import java.util.ArrayDeque;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,10 +32,10 @@ public class MockMessageQueue implements RaftMessageQueue {
     private final AtomicLong lastPollTimeout = new AtomicLong(-1);
 
     @Override
-    public QueueEntry poll(long timeoutMs) {
+    public Optional<QueueEntry> poll(long timeoutMs) {
         wakeupRequested.set(false);
         lastPollTimeout.set(timeoutMs);
-        return messages.poll();
+        return Optional.ofNullable(messages.poll());
     }
 
     @Override

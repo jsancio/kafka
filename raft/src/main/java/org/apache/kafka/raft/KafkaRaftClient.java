@@ -2800,7 +2800,11 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
         }
     }
 
-    private void handleRequest(RaftRequest.Inbound request, long currentTimeMs) {
+    private void handleRequest(
+        RaftRequest.Inbound request,
+        CompletableFuture<RaftMessage> future,
+        long currentTimeMs
+    ) {
         ApiKeys apiKey = ApiKeys.forId(request.data().apiKey());
         final CompletableFuture<? extends ApiMessage> responseFuture = switch (apiKey) {
             case FETCH -> handleFetchRequest(request, currentTimeMs);
@@ -2821,9 +2825,9 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
                 message = RaftUtil.errorResponse(apiKey, Errors.forException(exception));
             }
 
-            RaftResponse.Outbound responseMessage = new RaftResponse.Outbound(request.correlationId(), message);
-            request.completeResponse(responseMessage);
-            logger.trace("Sent response {} to inbound request {}", responseMessage, request);
+            var raftResponse = new RaftResponse.Outbound(request.correlationId(), message);
+            future.complete(raftResponse);
+            logger.trace("Sent response {} to inbound request {}", raftResponse, request);
         });
     }
 

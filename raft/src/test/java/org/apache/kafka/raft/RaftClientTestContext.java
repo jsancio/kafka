@@ -943,14 +943,14 @@ public final class RaftClientTestContext {
             versionedRequest,
             time.milliseconds()
         );
-        inboundRequest.completion().whenComplete((response, exception) -> {
+        client.handle(inboundRequest).whenComplete((response, exception) -> {
             if (exception != null) {
+                // TODO: this doesn't do anything interesting. Figure out a way to fail the test
                 throw new RuntimeException(exception);
             } else {
                 sentResponses.add(response);
             }
         });
-        client.handle(inboundRequest);
     }
 
     void deliverResponse(int correlationId, Node source, ApiMessage response) {
