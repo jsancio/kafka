@@ -36,6 +36,7 @@ import org.slf4j.Logger;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * This type implements the protocol for updating a voter from a KRaft partition.
@@ -72,7 +73,7 @@ public final class UpdateVoterHandler {
         this.log = logContext.logger(getClass());
     }
 
-    public CompletableFuture<UpdateRaftVoterResponseData> handleUpdateVoterRequest(
+    public CompletionStage<UpdateRaftVoterResponseData> handleUpdateVoterRequest(
         LeaderState<?> leaderState,
         ListenerName requestListenerName,
         ReplicaKey voterKey,
@@ -244,7 +245,7 @@ public final class UpdateVoterHandler {
             voters.updateVoterIgnoringDirectoryId(updatedVoter);
     }
 
-    private CompletableFuture<UpdateRaftVoterResponseData> storeUpdatedVoters(
+    private CompletionStage<UpdateRaftVoterResponseData> storeUpdatedVoters(
         LeaderState<?> leaderState,
         ReplicaKey voterKey,
         Optional<KRaftVersionUpgrade.Voters> inMemoryVoters,

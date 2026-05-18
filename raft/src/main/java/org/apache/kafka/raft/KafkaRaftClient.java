@@ -1476,7 +1476,7 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
      * - {@link Errors#INVALID_REQUEST} if the request epoch is larger than the leader's current epoch
      *     or if either the fetch offset or the last fetched epoch is invalid
      */
-    private CompletableFuture<FetchResponseData> handleFetchRequest(
+    private CompletionStage<FetchResponseData> handleFetchRequest(
         RaftRequest.Inbound requestMetadata,
         long currentTimeMs
     ) {
@@ -1539,12 +1539,10 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
             return completedFuture(response);
         }
 
-        CompletableFuture<Long> future = fetchPurgatory.await(
+        return fetchPurgatory.await(
             fetchPartition.fetchOffset(),
             request.maxWaitMs()
-        );
-
-        return future.handle((completionTimeMs, exception) -> {
+        ).handle((completionTimeMs, exception) -> {
             if (exception != null) {
                 Throwable cause = exception instanceof ExecutionException ?
                     exception.getCause() : exception;
@@ -2242,7 +2240,7 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
      * - {@link Errors#UNSUPPORTED_VERSION} if the cluster does not support kraft.version 1
      * - {@link Errors#INVALID_REQUEST} if the request does not include a valid voter or endpoint
      */
-    private CompletableFuture<AddRaftVoterResponseData> handleAddVoterRequest(
+    private CompletionStage<AddRaftVoterResponseData> handleAddVoterRequest(
         RaftRequest.Inbound requestMetadata,
         long currentTimeMs
     ) {
@@ -2381,7 +2379,7 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
      * - {@link Errors#UNSUPPORTED_VERSION} if the cluster does not support the required kraft.version
      * - {@link Errors#INVALID_REQUEST} if the request does not include a valid voter or endpoint
      */
-    private CompletableFuture<RemoveRaftVoterResponseData> handleRemoveVoterRequest(
+    private CompletionStage<RemoveRaftVoterResponseData> handleRemoveVoterRequest(
         RaftRequest.Inbound requestMetadata,
         long currentTimeMs
     ) {
@@ -2464,7 +2462,7 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
      *     directory id, endpoint, or KRaft version
      * - {@link Errors#VOTER_NOT_FOUND} if the specified voter does not exist in the current set
      */
-    private CompletableFuture<UpdateRaftVoterResponseData> handleUpdateVoterRequest(
+    private CompletionStage<UpdateRaftVoterResponseData> handleUpdateVoterRequest(
         RaftRequest.Inbound requestMetadata,
         long currentTimeMs
     ) {
@@ -2806,7 +2804,7 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
         long currentTimeMs
     ) {
         ApiKeys apiKey = ApiKeys.forId(request.data().apiKey());
-        final CompletableFuture<? extends ApiMessage> responseFuture = switch (apiKey) {
+        final CompletionStage<? extends ApiMessage> responseStage = switch (apiKey) {
             case FETCH -> handleFetchRequest(request, currentTimeMs);
             case VOTE -> completedFuture(handleVoteRequest(request));
             case BEGIN_QUORUM_EPOCH -> completedFuture(handleBeginQuorumEpochRequest(request, currentTimeMs));
@@ -2819,7 +2817,7 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
             default -> throw new IllegalArgumentException("Unexpected request type " + apiKey);
         };
 
-        responseFuture.whenComplete((response, exception) -> {
+        responseStage.whenComplete((response, exception) -> {
             ApiMessage message = response;
             if (message == null) {
                 message = RaftUtil.errorResponse(apiKey, Errors.forException(exception));
@@ -3045,10 +3043,11 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
             int epoch = state.epoch();
             LogAppendInfo info = appendAsLeader(batch.data);
             OffsetAndEpoch offsetAndEpoch = new OffsetAndEpoch(info.lastOffset(), epoch);
-            CompletableFuture<Long> future = appendPurgatory.await(
-                offsetAndEpoch.offset() + 1, Integer.MAX_VALUE);
 
-            future.whenComplete((commitTimeMs, exception) -> {
+            appendPurgatory.await(
+                offsetAndEpoch.offset() + 1,
+                Integer.MAX_VALUE
+            ).whenComplete((commitTimeMs, exception) -> {
                 if (exception != null) {
                     logger.debug(
                         "Failed to commit {} records up to last offset {}",
@@ -3740,7 +3739,7 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
     }
 
     @Override
-    public CompletableFuture<Void> shutdown(int timeoutMs) {
+    public CompletionStage<Void> shutdown(int timeoutMs) {
         logger.info("Beginning graceful shutdown");
         CompletableFuture<Void> shutdownComplete = new CompletableFuture<>();
         shutdown.set(new GracefulShutdown(timeoutMs, shutdownComplete));
@@ -3905,8 +3904,10 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
         final Timer finishTimer;
         final CompletableFuture<Void> completeFuture;
 
-        public GracefulShutdown(long shutdownTimeoutMs,
-                                CompletableFuture<Void> completeFuture) {
+        public GracefulShutdown(
+            long shutdownTimeoutMs,
+            CompletableFuture<Void> completeFuture
+        ) {
             this.finishTimer = time.timer(shutdownTimeoutMs);
             this.completeFuture = completeFuture;
         }

@@ -3168,7 +3168,7 @@ class KafkaRaftClientTest {
 
         // Now shutdown
         int shutdownTimeoutMs = 5000;
-        CompletableFuture<Void> shutdownFuture = context.client.shutdown(shutdownTimeoutMs);
+        var shutdownFuture = context.client.shutdown(shutdownTimeoutMs).toCompletableFuture();
 
         // We should still be running until we have had a chance to send EndQuorumEpoch
         assertTrue(context.client.isShuttingDown());
@@ -3709,7 +3709,7 @@ class KafkaRaftClientTest {
 
         // Now shutdown
         int shutdownTimeoutMs = 5000;
-        CompletableFuture<Void> shutdownFuture = context.client.shutdown(shutdownTimeoutMs);
+        CompletableFuture<Void> shutdownFuture = context.client.shutdown(shutdownTimeoutMs).toCompletableFuture();
 
         // We should still be running until we have had a chance to send EndQuorumEpoch
         assertTrue(context.client.isRunning());
@@ -3747,7 +3747,7 @@ class KafkaRaftClientTest {
         context.client.poll();
 
         int shutdownTimeoutMs = 5000;
-        CompletableFuture<Void> shutdownFuture = context.client.shutdown(shutdownTimeoutMs);
+        CompletableFuture<Void> shutdownFuture = context.client.shutdown(shutdownTimeoutMs).toCompletableFuture();
         assertTrue(context.client.isRunning());
         assertFalse(shutdownFuture.isDone());
 
@@ -3774,7 +3774,7 @@ class KafkaRaftClientTest {
 
         // Observer shutdown should complete immediately even if the
         // current leader is unknown
-        CompletableFuture<Void> shutdownFuture = context.client.shutdown(5000);
+        CompletableFuture<Void> shutdownFuture = context.client.shutdown(5000).toCompletableFuture();
         assertTrue(context.client.isRunning());
         assertFalse(shutdownFuture.isDone());
 
