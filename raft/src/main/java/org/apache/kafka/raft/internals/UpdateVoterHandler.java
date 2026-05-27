@@ -58,18 +58,18 @@ import java.util.concurrent.CompletionStage;
 public final class UpdateVoterHandler {
     private final OptionalInt localId;
     private final KRaftControlRecordStateMachine partitionState;
-    private final ListenerName defaultListenerName;
+    private final RequestSender requestSender;
     private final Logger log;
 
     public UpdateVoterHandler(
         OptionalInt localId,
         KRaftControlRecordStateMachine partitionState,
-        ListenerName defaultListenerName,
+        RequestSender requestSender,
         LogContext logContext
     ) {
         this.localId = localId;
         this.partitionState = partitionState;
-        this.defaultListenerName = defaultListenerName;
+        this.requestSender = requestSender;
         this.log = logContext.logger(getClass());
     }
 
@@ -176,7 +176,7 @@ public final class UpdateVoterHandler {
         }
 
         // Check that endpoints includes the default listener
-        if (voterEndpoints.address(defaultListenerName).isEmpty()) {
+        if (voterEndpoints.address(requestSender.listenerName()).isEmpty()) {
             return CompletableFuture.completedFuture(
                 RaftUtil.updateVoterResponse(
                     Errors.INVALID_REQUEST,
@@ -188,6 +188,94 @@ public final class UpdateVoterHandler {
                     leaderState.leaderEndpoints()
                 )
             );
+        }
+
+        // Send API_VERSIONS request to new voter to test new default endpoint
+        OptionalLong timeout = requestSender.send(
+            voterEndpoints
+                .address(requestSender.listenerName())
+                .map(address -> new Node(voterKey.id(), address.getHostName(), address.getPort()))
+                .orElseThrow(
+                    () -> new IllegalStateException(
+                        String.format(
+                            "Provided listeners %s do not contain a listener for %s",
+                            voterEndpoints,
+                            requestSender.listenerName()
+                        )
+                    )
+                ),
+            this::buildApiVersionsRequest,
+            currentTimeMs
+        );
+        if (timeout.isEmpty()) {
+            return CompletableFuture.completedFuture(
+                RaftUtil.updateVoterResponse(
+                    Errors.REQUEST_TIMED_OUT,
+                    String.format("Updating voter %s is not ready to receive requests", voterKey)
+                )
+            );
+        }
+
+        UpdateVoterHandlerState state = new UpdateVoterHandlerState(
+            voterKey,
+            voterEndpoints,
+            time.timer(timeout.getAsLong())
+        );
+        leaderState.resetUpdateVoterHandlerState(
+            Errors.UNKNOWN_SERVER_ERROR,
+            null,
+            Optional.of(state)
+        );
+
+        return state.future();
+    }
+
+    // TODO: Remove code duplication with add voter's handle api version response
+    public boolean handleApiVersionsResponse(
+        LeaderState<?> leaderState,
+        Node source,
+        Errors error,
+        Optional<ApiVersionsResponseData.SupportedFeatureKey> supportedKraftVersions,
+        long currentTimeMs
+    ) {
+        Optional<UpdateVoterHandlerState> handlerState = leaderState.updateVoterHandlerState();
+        if (handlerState.isEmpty()) {
+            // There are no pending add operation just ignore the api response
+            return true;
+        }
+
+        // Check that the API_VERSIONS response matches the id of the voter getting added
+        UpdateVoterHandlerState current = handlerState.get();
+        if (!current.expectingApiResponse(source.id())) {
+            logger.info(
+                "API_VERSIONS response is not expected from {}: voterKey is {}, lastOffset is {}",
+                source,
+                current.voterKey(),
+                current.lastOffset()
+            );
+
+            return true;
+        }
+
+        // Abort operation if the API_VERSIONS returned an error
+        if (error != Errors.NONE) {
+            logger.info(
+                "Aborting update voter operation for {} at {} since API_VERSIONS returned an error {}",
+                current.voterKey(),
+                current.voterEndpoints(),
+                error
+            );
+
+            leaderState.resetUpdateVoterHandlerState(
+                Errors.REQUEST_TIMED_OUT,
+                String.format(
+                    "Aborted update voter operation for since API_VERSIONS returned an error %s",
+                    error
+                ),
+                Optional.empty()
+            );
+
+            return false;
         }
 
         // Update the voter
@@ -245,7 +333,7 @@ public final class UpdateVoterHandler {
             voters.updateVoterIgnoringDirectoryId(updatedVoter);
     }
 
-    private CompletionStage<UpdateRaftVoterResponseData> storeUpdatedVoters(
+    private boolean storeUpdatedVoters(
         LeaderState<?> leaderState,
         ReplicaKey voterKey,
         Optional<KRaftVersionUpgrade.Voters> inMemoryVoters,
@@ -268,39 +356,45 @@ public final class UpdateVoterHandler {
                     inMemoryVoters.get().voters(),
                     newVoters
                 );
+
+                // Reset the check quorum state since the leader received a successful request
+                leaderState.updateCheckQuorumForFollowingVoter(voterKey, currentTimeMs);
+
+                leaderState.resetUpdateVoterHandlerState(
+                    Errors.NONE,
+                    null,
+                    requestListenerName,
+                    new LeaderAndEpoch(
+                        localId,
+                        leaderState.epoch()
+                    ),
+                    leaderState.leaderEndpoints(),
+                    Optional.empty()
+                );
             } else {
                 log.info(
                     "Unable to update in-memory voters from {} to {}",
                     inMemoryVoters.get().voters(),
                     newVoters
                 );
-                return CompletableFuture.completedFuture(
-                    RaftUtil.updateVoterResponse(
-                        Errors.REQUEST_TIMED_OUT,
-                        requestListenerName,
-                        new LeaderAndEpoch(
-                            localId,
-                            leaderState.epoch()
-                        ),
-                        leaderState.leaderEndpoints()
-                    )
+
+                // Fail the pending future if present
+                leaderState.resetUpdateVoterHandlerState(
+                    Errors.REQUEST_TIMED_OUT,
+                    null,
+                    requestListenerName,
+                    new LeaderAndEpoch(
+                        localId,
+                        leaderState.epoch()
+                    ),
+                    leaderState.leaderEndpoints(),
+                    Optional.empty()
                 );
             }
         }
+    }
 
-        // Reset the check quorum state since the leader received a successful request
-        leaderState.updateCheckQuorumForFollowingVoter(voterKey, currentTimeMs);
-
-        return CompletableFuture.completedFuture(
-            RaftUtil.updateVoterResponse(
-                Errors.NONE,
-                requestListenerName,
-                new LeaderAndEpoch(
-                    localId,
-                    leaderState.epoch()
-                ),
-                leaderState.leaderEndpoints()
-            )
-        );
+    private ApiVersionsRequestData buildApiVersionsRequest() {
+        return new ApiVersionsRequest.Builder().build().data();
     }
 }

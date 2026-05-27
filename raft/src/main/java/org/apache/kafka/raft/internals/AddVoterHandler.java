@@ -199,6 +199,7 @@ public final class AddVoterHandler {
         return state.future();
     }
 
+    // TODO: document the return type
     public boolean handleApiVersionsResponse(
         LeaderState<?> leaderState,
         Node source,
