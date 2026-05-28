@@ -30,11 +30,10 @@ import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Timer;
 import org.apache.kafka.raft.errors.NotLeaderException;
-import org.apache.kafka.raft.internals.AddVoterHandlerState;
 import org.apache.kafka.raft.internals.BatchAccumulator;
+import org.apache.kafka.raft.internals.ChangeVoterHandlerState;
 import org.apache.kafka.raft.internals.KRaftVersionUpgrade;
 import org.apache.kafka.raft.internals.KafkaRaftMetrics;
-import org.apache.kafka.raft.internals.RemoveVoterHandlerState;
 import org.apache.kafka.server.common.KRaftVersion;
 
 import org.slf4j.Logger;
@@ -72,11 +71,10 @@ public class LeaderState<T> implements EpochState {
     // This field is non-empty if the voter set at epoch start came from a snapshot or log segment
     private final OptionalLong offsetOfVotersAtEpochStart;
     private final KRaftVersion kraftVersionAtEpochStart;
+    private final ChangeVoterHandlerState changeVoterState;
 
     private Optional<LogOffsetMetadata> highWatermark = Optional.empty();
     private Map<Integer, ReplicaState> voterStates = new HashMap<>();
-    private Optional<AddVoterHandlerState> addVoterHandlerState = Optional.empty();
-    private Optional<RemoveVoterHandlerState> removeVoterHandlerState = Optional.empty();
 
     private final Map<ReplicaKey, ReplicaState> observerStates = new HashMap<>();
     private final Logger log;
@@ -158,6 +156,7 @@ public class LeaderState<T> implements EpochState {
         this.voterSetAtEpochStart =  voterSetAtEpochStart;
         this.offsetOfVotersAtEpochStart = offsetOfVotersAtEpochStart;
         this.kraftVersionAtEpochStart = kraftVersionAtEpochStart;
+        this.changeVoterState = new ChangeVoterHandlerState(kafkaRaftMetrics);
 
         kafkaRaftMetrics.addLeaderMetrics();
         this.kafkaRaftMetrics = kafkaRaftMetrics;
@@ -282,80 +281,8 @@ public class LeaderState<T> implements EpochState {
         return accumulator;
     }
 
-    public Optional<AddVoterHandlerState> addVoterHandlerState() {
-        return addVoterHandlerState;
-    }
-
-    public void resetAddVoterHandlerState(
-        Errors error,
-        String message,
-        Optional<AddVoterHandlerState> state
-    ) {
-        addVoterHandlerState.ifPresent(
-            handlerState -> handlerState
-                .future()
-                .complete(RaftUtil.addVoterResponse(error, message))
-        );
-        addVoterHandlerState = state;
-        updateUncommittedVoterChangeMetric();
-    }
-
-    public Optional<RemoveVoterHandlerState> removeVoterHandlerState() {
-        return removeVoterHandlerState;
-    }
-
-    public void resetRemoveVoterHandlerState(
-        Errors error,
-        String message,
-        Optional<RemoveVoterHandlerState> state
-    ) {
-        removeVoterHandlerState.ifPresent(
-            handlerState -> handlerState
-                .future()
-                .complete(RaftUtil.removeVoterResponse(error, message))
-        );
-        removeVoterHandlerState = state;
-        updateUncommittedVoterChangeMetric();
-    }
-
-    private void updateUncommittedVoterChangeMetric() {
-        kafkaRaftMetrics.updateUncommittedVoterChange(
-            addVoterHandlerState.isPresent() || removeVoterHandlerState.isPresent()
-        );
-    }
-
-    public long maybeExpirePendingOperation(long currentTimeMs) {
-        // First abort any expired operations
-        long timeUntilAddVoterExpiration = addVoterHandlerState()
-            .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
-            .orElse(Long.MAX_VALUE);
-
-        if (timeUntilAddVoterExpiration == 0) {
-            resetAddVoterHandlerState(Errors.REQUEST_TIMED_OUT, null, Optional.empty());
-        }
-
-        long timeUntilRemoveVoterExpiration = removeVoterHandlerState()
-            .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
-            .orElse(Long.MAX_VALUE);
-
-        if (timeUntilRemoveVoterExpiration == 0) {
-            resetRemoveVoterHandlerState(Errors.REQUEST_TIMED_OUT, null, Optional.empty());
-        }
-
-        // Reread the timeouts and return the smaller of them
-        return Math.min(
-            addVoterHandlerState()
-                .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
-                .orElse(Long.MAX_VALUE),
-            removeVoterHandlerState()
-                .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
-                .orElse(Long.MAX_VALUE)
-        );
-    }
-
-    public boolean isOperationPending(long currentTimeMs) {
-        maybeExpirePendingOperation(currentTimeMs);
-        return addVoterHandlerState.isPresent() || removeVoterHandlerState.isPresent();
+    public ChangeVoterHandlerState changeVoterState() {
+        return changeVoterState;
     }
 
     private static List<Voter> convertToVoters(Set<Integer> voterIds) {
@@ -1144,8 +1071,7 @@ public class LeaderState<T> implements EpochState {
 
     @Override
     public void close() {
-        resetAddVoterHandlerState(Errors.NOT_LEADER_OR_FOLLOWER, null, Optional.empty());
-        resetRemoveVoterHandlerState(Errors.NOT_LEADER_OR_FOLLOWER, null, Optional.empty());
+        changeVoterState.maybeResetPendingVoterHandlerState(Errors.NOT_LEADER_OR_FOLLOWER);
         kafkaRaftMetrics.removeLeaderMetrics();
 
         accumulator.close();

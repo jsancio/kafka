@@ -33,6 +33,7 @@ import org.slf4j.Logger;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * This type implements the protocol for removing a voter from a KRaft partition.
@@ -74,13 +75,14 @@ public final class RemoveVoterHandler {
         this.logger = logContext.logger(RemoveVoterHandler.class);
     }
 
-    public CompletableFuture<RemoveRaftVoterResponseData> handleRemoveVoterRequest(
+    public CompletionStage<RemoveRaftVoterResponseData> handleRemoveVoterRequest(
         LeaderState<?> leaderState,
         ReplicaKey voterKey,
         long currentTimeMs
     ) {
+        var changeVoterState = leaderState.changeVoterState();
         // Check if there are any pending voter change requests
-        if (leaderState.isOperationPending(currentTimeMs)) {
+        if (changeVoterState.isOperationPending(currentTimeMs)) {
             return CompletableFuture.completedFuture(
                 RaftUtil.removeVoterResponse(
                     Errors.REQUEST_TIMED_OUT,
@@ -150,39 +152,46 @@ public final class RemoveVoterHandler {
             leaderState.appendVotersRecord(newVoters.get(), currentTimeMs),
             time.timer(requestTimeoutMs)
         );
-        leaderState.resetRemoveVoterHandlerState(Errors.UNKNOWN_SERVER_ERROR, null, Optional.of(state));
+        changeVoterState.resetRemoveVoterHandlerState(Errors.UNKNOWN_SERVER_ERROR, null, Optional.of(state));
 
         return state.future();
     }
 
     public void highWatermarkUpdated(LeaderState<?> leaderState) {
-        leaderState.removeVoterHandlerState().ifPresent(current ->
-            leaderState.highWatermark().ifPresent(highWatermark -> {
-                if (highWatermark.offset() > current.lastOffset()) {
-                    // VotersRecord with the removed voter was committed; complete the RPC
-                    leaderState.resetRemoveVoterHandlerState(Errors.NONE, null, Optional.empty());
+        leaderState
+            .changeVoterState()
+            .removeVoterHandlerState()
+            .ifPresent(current ->
+                leaderState
+                    .highWatermark()
+                    .ifPresent(highWatermark -> {
+                        if (highWatermark.offset() > current.lastOffset()) {
+                            // VotersRecord with the removed voter was committed; complete the RPC
+                            leaderState
+                                .changeVoterState()
+                                .resetRemoveVoterHandlerState(Errors.NONE, null, Optional.empty());
 
-                    // Resign if the leader is not part of the new committed voter set
-                    VoterSet voters = partitionState.lastVoterSet();
-                    ReplicaKey localKey = localReplicaKey.orElseThrow(
-                        () -> new IllegalStateException(
-                            String.format(
-                                "Leaders mush have an id and directory id %s",
-                                localReplicaKey
-                            )
-                        )
-                    );
-                    if (!voters.isVoter(localKey)) {
-                        logger.info(
-                            "Leader is not in the committed voter set {} resign from epoch {}",
-                            voters.voterKeys(),
-                            leaderState.epoch()
-                        );
+                            // Resign if the leader is not part of the new committed voter set
+                            VoterSet voters = partitionState.lastVoterSet();
+                            ReplicaKey localKey = localReplicaKey.orElseThrow(
+                                () -> new IllegalStateException(
+                                    String.format(
+                                        "Leaders mush have an id and directory id %s",
+                                        localReplicaKey
+                                    )
+                                )
+                            );
+                            if (!voters.isVoter(localKey)) {
+                                logger.info(
+                                    "Leader is not in the committed voter set {} resign from epoch {}",
+                                    voters.voterKeys(),
+                                    leaderState.epoch()
+                                );
 
-                        leaderState.requestResign();
-                    }
-                }
-            })
-        );
+                                leaderState.requestResign();
+                            }
+                        }
+                    })
+            );
     }
 }

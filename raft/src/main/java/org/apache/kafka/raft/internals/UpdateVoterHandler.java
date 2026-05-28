@@ -82,7 +82,7 @@ public final class UpdateVoterHandler {
         long currentTimeMs
     ) {
         // Check if there are any pending voter change requests
-        if (leaderState.isOperationPending(currentTimeMs)) {
+        if (leaderState.changeVoterState().isOperationPending(currentTimeMs)) {
             return CompletableFuture.completedFuture(
                 RaftUtil.updateVoterResponse(
                     Errors.REQUEST_TIMED_OUT,
