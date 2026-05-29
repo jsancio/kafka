@@ -573,15 +573,17 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
             onBecomeFollower(currentTimeMs);
         }
 
+        var requestSender = new DefaultRequestSender(
+            requestManager,
+            channel,
+            messageQueue,
+            logContext
+        );
+
         // Specialized add voter handler
         this.addVoterHandler = new AddVoterHandler(
             partitionState,
-            new DefaultRequestSender(
-                requestManager,
-                channel,
-                messageQueue,
-                logContext
-            ),
+            requestSender,
             time,
             logContext
         );
@@ -600,7 +602,8 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
         this.updateVoterHandler = new UpdateVoterHandler(
             nodeId,
             partitionState,
-            channel.listenerName(),
+            requestSender,
+            time,
             logContext
         );
     }
