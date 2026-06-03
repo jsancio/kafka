@@ -17,30 +17,38 @@
 
 package org.apache.kafka.raft.internals;
 
+import org.apache.kafka.common.feature.SupportedVersionRange;
 import org.apache.kafka.common.message.UpdateRaftVoterResponseData;
 import org.apache.kafka.common.network.ListenerName;
 import org.apache.kafka.common.utils.Timer;
 import org.apache.kafka.raft.Endpoints;
 import org.apache.kafka.raft.ReplicaKey;
 
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
+// TODO: Add a future completion method and don't expose the future
 public final class UpdateVoterHandlerState {
     private final ReplicaKey voterKey;
     private final Endpoints voterEndpoints;
     private final ListenerName requestListenerName;
+    private final SupportedVersionRange supportedKraftVersions;
     private final Timer timeout;
     private final CompletableFuture<UpdateRaftVoterResponseData> future = new CompletableFuture<>();
+
+    private OptionalLong lastOffset = OptionalLong.empty();
 
     UpdateVoterHandlerState(
         ReplicaKey voterKey,
         Endpoints voterEndpoints,
         ListenerName requestListenerName,
+        SupportedVersionRange supportedKraftVersions,
         Timer timeout
     ) {
         this.voterKey = voterKey;
         this.voterEndpoints = voterEndpoints;
         this.requestListenerName = requestListenerName;
+        this.supportedKraftVersions = supportedKraftVersions;
         this.timeout = timeout;
     }
 
@@ -50,7 +58,23 @@ public final class UpdateVoterHandlerState {
     }
 
     public boolean expectingApiResponse(int replicaId) {
-        return replicaId == voterKey.id();
+        return lastOffset.isEmpty() && replicaId == voterKey.id();
+    }
+
+    public void setLastOffset(long lastOffset) {
+        if (this.lastOffset.isPresent()) {
+            throw new IllegalStateException(
+                String.format(
+                    "Cannot override last offset to %s for adding voter %s because it is " +
+                    "already set to %s",
+                    lastOffset,
+                    voterKey,
+                    this.lastOffset
+                )
+            );
+        }
+
+        this.lastOffset = OptionalLong.of(lastOffset);
     }
 
     public ReplicaKey voterKey() {
@@ -63,6 +87,14 @@ public final class UpdateVoterHandlerState {
 
     public ListenerName requestListenerName() {
         return requestListenerName;
+    }
+
+    public SupportedVersionRange supportedKraftVersions() {
+        return supportedKraftVersions;
+    }
+
+    public OptionalLong lastOffset() {
+        return lastOffset;
     }
 
     public CompletableFuture<UpdateRaftVoterResponseData> future() {

@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -625,6 +626,11 @@ public class LeaderState<T> implements EpochState {
     @Override
     public Endpoints leaderEndpoints() {
         return localVoterNode.listeners();
+    }
+
+    // TODO: should this be part of the interface?
+    public LeaderAndEpoch leaderAndEpoch() {
+        return new LeaderAndEpoch(OptionalInt.of(localVoterNode.voterKey().id()), epoch);
     }
 
     Map<Integer, ReplicaState> voterStates() {

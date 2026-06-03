@@ -342,7 +342,7 @@ public class KafkaRaftClientReconfigTest {
         // Attempt to add new voter to the quorum
         context.deliverRequest(context.addVoterRequest(Integer.MAX_VALUE, newVoter, newListeners));
 
-        completeApiVersionsForAddVoter(context, newVoter, newAddress);
+        completeApiVersions(context, newVoter, newAddress);
 
         // Handle the API_VERSIONS response
         context.client.poll();
@@ -394,7 +394,7 @@ public class KafkaRaftClientReconfigTest {
             ).setAckWhenCommitted(false)
         );
 
-        completeApiVersionsForAddVoter(context, newVoter, newAddress);
+        completeApiVersions(context, newVoter, newAddress);
 
         // Handle the API_VERSIONS response
         context.client.poll();
@@ -434,16 +434,16 @@ public class KafkaRaftClientReconfigTest {
         checkLeaderMetricValues(2, 1, 0, context);
     }
 
-    private void completeApiVersionsForAddVoter(
+    private void completeApiVersions(
         RaftClientTestContext context,
-        ReplicaKey newVoter,
-        InetSocketAddress newAddress
+        ReplicaKey remoteVoter,
+        InetSocketAddress remoteAddress
     ) throws Exception {
-        // Leader should send an API_VERSIONS request to the new voter's endpoint
+        // Leader should send an API_VERSIONS request to the remote voter's endpoint
         context.pollUntilRequest();
         RaftRequest.Outbound apiVersionRequest = context.assertSentApiVersionsRequest();
         assertEquals(
-            new Node(newVoter.id(), newAddress.getHostString(), newAddress.getPort()),
+            new Node(remoteVoter.id(), remoteAddress.getHostString(), remoteAddress.getPort()),
             apiVersionRequest.destination()
         );
 
@@ -1676,6 +1676,8 @@ public class KafkaRaftClientReconfigTest {
             )
         );
 
+        completeApiVersions(context, follower, defaultAddress);
+
         // Expect reply for UpdateVoter request without committing the record
         context.pollUntilResponse();
         context.assertSentUpdateVoterResponse(
@@ -1687,6 +1689,8 @@ public class KafkaRaftClientReconfigTest {
         // follower should still be a voter in the latest voter set
         assertTrue(context.client.quorum().isVoter(follower));
     }
+
+    // TODO: Test that update voter's version range doesn't match api version supported range
 
     @Test
     void testLeaderUpdatesVoter() throws Exception {
@@ -2015,6 +2019,9 @@ public class KafkaRaftClientReconfigTest {
                 newListeners
             )
         );
+
+        completeApiVersions(context, follower, defaultAddress);
+
         context.pollUntilResponse();
         context.assertSentUpdateVoterResponse(
             Errors.NONE,
@@ -2059,13 +2066,17 @@ public class KafkaRaftClientReconfigTest {
         listenersMap.put(context.channel.listenerName(), defaultAddress);
         listenersMap.put(ListenerName.normalised("ANOTHER_LISTENER"), newAddress);
         Endpoints newListeners = Endpoints.fromInetSocketAddresses(listenersMap);
+        var notVoter = replicaKey(follower.id(), true);
         context.deliverRequest(
             context.updateVoterRequest(
-                replicaKey(follower.id(), true),
+                notVoter,
                 Feature.KRAFT_VERSION.supportedVersionRange(),
                 newListeners
             )
         );
+
+        completeApiVersions(context, notVoter, defaultAddress);
+
         context.pollUntilResponse();
         context.assertSentUpdateVoterResponse(
             Errors.VOTER_NOT_FOUND,
@@ -2110,13 +2121,17 @@ public class KafkaRaftClientReconfigTest {
         listenersMap.put(context.channel.listenerName(), defaultAddress);
         listenersMap.put(ListenerName.normalised("ANOTHER_LISTENER"), newAddress);
         Endpoints newListeners = Endpoints.fromInetSocketAddresses(listenersMap);
+        var notVoter = ReplicaKey.of(follower.id() + 1, follower.directoryId().get());
         context.deliverRequest(
             context.updateVoterRequest(
-                ReplicaKey.of(follower.id() + 1, follower.directoryId().get()),
+                notVoter,
                 Feature.KRAFT_VERSION.supportedVersionRange(),
                 newListeners
             )
         );
+
+        completeApiVersions(context, notVoter, defaultAddress);
+
         context.pollUntilResponse();
         context.assertSentUpdateVoterResponse(
             Errors.VOTER_NOT_FOUND,
@@ -2434,6 +2449,13 @@ public class KafkaRaftClientReconfigTest {
                     startingVoters.listeners(voter.id())
                 )
             );
+
+            completeApiVersions(
+                context,
+                voter,
+                startingVoters.listeners(voter.id()).address(context.channel.listenerName()).get()
+            );
+
             context.pollUntilResponse();
             context.assertSentUpdateVoterResponse(
                 Errors.NONE,
@@ -2501,6 +2523,13 @@ public class KafkaRaftClientReconfigTest {
                     startingVoters.listeners(voter.id())
                 )
             );
+
+            completeApiVersions(
+                context,
+                voter,
+                startingVoters.listeners(voter.id()).address(context.channel.listenerName()).get()
+            );
+
             context.pollUntilResponse();
             context.assertSentUpdateVoterResponse(
                 Errors.NONE,
@@ -2547,6 +2576,13 @@ public class KafkaRaftClientReconfigTest {
                 newVoter1Listeners
             )
         );
+
+        completeApiVersions(
+            context,
+            voter1,
+            newVoter1Listeners.address(context.channel.listenerName()).get()
+        );
+
         context.pollUntilResponse();
         context.assertSentUpdateVoterResponse(
             Errors.NONE,
@@ -2610,6 +2646,13 @@ public class KafkaRaftClientReconfigTest {
                 startingVoters.listeners(voter1.id())
             )
         );
+
+        completeApiVersions(
+            context,
+            voter1,
+            startingVoters.listeners(voter1.id()).address(context.channel.listenerName()).get()
+        );
+
         context.pollUntilResponse();
         context.assertSentUpdateVoterResponse(
             Errors.NONE,

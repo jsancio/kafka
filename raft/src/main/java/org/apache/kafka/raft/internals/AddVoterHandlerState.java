@@ -25,6 +25,7 @@ import org.apache.kafka.raft.ReplicaKey;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
+// TODO: Add a future completion method and don't expose the future
 public final class AddVoterHandlerState {
     private final ReplicaKey voterKey;
     private final Endpoints voterEndpoints;

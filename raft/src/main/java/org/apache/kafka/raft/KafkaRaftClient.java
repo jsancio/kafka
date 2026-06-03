@@ -374,10 +374,9 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
             logger.debug("Leader high watermark updated to {}", highWatermark);
             log.updateHighWatermark(highWatermark);
 
-            // Notify the add and remove voter handlers that the HWM has been updated in case there are
+            // Notify the voter change handlers that the HWM has been updated in case there are
             // add or remove voter request that need to be completed
-            addVoterHandler.highWatermarkUpdated(state);
-            removeVoterHandler.highWatermarkUpdated(state);
+            maybeNotifyVoterHandlerOnHWmUpdate(state, highWatermark.offset());
 
             // After updating the high watermark, we first clear the append
             // purgatory so that we have an opportunity to route the pending
@@ -394,6 +393,12 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
             // to give lagging listeners an opportunity to catch up as well
             updateListenersProgress(highWatermark.offset());
         });
+    }
+
+    private void maybeNotifyVoterHandlerOnHWmUpdate(LeaderState<T> state, long highWatermark) {
+        addVoterHandler.highWatermarkUpdated(state, highWatermark);
+        removeVoterHandler.highWatermarkUpdated(state, highWatermark);
+        updateVoterHandler.highWatermarkUpdated(state, highWatermark);
     }
 
     private void updateListenersProgress(long highWatermark) {
@@ -600,7 +605,6 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
 
         // Specialized update voter handler
         this.updateVoterHandler = new UpdateVoterHandler(
-            nodeId,
             partitionState,
             requestSender,
             time,
@@ -2312,19 +2316,35 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
             return true;
         }
 
+        var leaderState = quorum.leaderStateOrThrow();
+
         ApiVersionsResponseData response = (ApiVersionsResponseData) responseMetadata.data();
 
         Errors error = Errors.forCode(response.errorCode());
         Optional<ApiVersionsResponseData.SupportedFeatureKey> supportedKraftVersions =
             Optional.ofNullable(response.supportedFeatures().find(KRaftVersion.FEATURE_NAME));
 
-        return addVoterHandler.handleApiVersionsResponse(
-            quorum.leaderStateOrThrow(),
-            responseMetadata.source(),
-            error,
-            supportedKraftVersions,
-            currentTimeMs
-        );
+        // TODO: The most direct way to implement this is to look at the stored handler states
+        if (leaderState.changeVoterState().addVoterHandlerState().isPresent()) {
+            return addVoterHandler.handleApiVersionsResponse(
+                leaderState,
+                responseMetadata.source(),
+                error,
+                supportedKraftVersions,
+                currentTimeMs
+            );
+        } else if (leaderState.changeVoterState().updateVoterHandlerState().isPresent()) {
+            return updateVoterHandler.handleApiVersionsResponse(
+                leaderState,
+                responseMetadata.source(),
+                error,
+                supportedKraftVersions,
+                currentTimeMs
+            );
+        } else {
+            logger.info("TODO: log some important message");
+            return true;
+        }
     }
 
     private boolean handleAddVoterResponse(
@@ -3175,7 +3195,11 @@ public final class KafkaRaftClient<T> implements RaftClient<T> {
 
         long timeUntilVoterChangeExpires = state
             .changeVoterState()
-            .maybeExpirePendingOperation(currentTimeMs);
+            .maybeExpirePendingOperation(
+                quorum.leaderAndEpoch(),
+                quorum.leaderEndpoints(),
+                currentTimeMs
+            );
 
         long timeUntilFlush = maybeAppendBatches(
             state,

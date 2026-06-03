@@ -93,7 +93,13 @@ public final class AddVoterHandler {
     ) {
         var changeVoterState = leaderState.changeVoterState();
         // Check if there are any pending voter change requests
-        if (changeVoterState.isOperationPending(currentTimeMs)) {
+        if (
+            changeVoterState.isOperationPending(
+                leaderState.leaderAndEpoch(),
+                leaderState.leaderEndpoints(),
+                currentTimeMs
+            )
+        ) {
             return CompletableFuture.completedFuture(
                 RaftUtil.addVoterResponse(
                     Errors.REQUEST_TIMED_OUT,
@@ -335,21 +341,19 @@ public final class AddVoterHandler {
         return true;
     }
 
-    public void highWatermarkUpdated(LeaderState<?> leaderState) {
-        leaderState
-            .changeVoterState()
+    public void highWatermarkUpdated(LeaderState<?> leaderState, long highWatermark) {
+        var changeVoterState = leaderState.changeVoterState();
+
+        changeVoterState
             .addVoterHandlerState()
             .ifPresent(current ->
-                leaderState.highWatermark().ifPresent(highWatermark ->
-                    current.lastOffset().ifPresent(lastOffset -> {
-                        if (highWatermark.offset() > lastOffset) {
-                            // VotersRecord with the added voter was committed; complete the RPC
-                            leaderState
-                                .changeVoterState()
-                                .resetAddVoterHandlerState(Errors.NONE, null, Optional.empty());
-                        }
-                    })
-                )
+                current.lastOffset().ifPresent(lastOffset -> {
+                    if (highWatermark > lastOffset) {
+                        // VotersRecord with the added voter was committed; complete the RPC
+                        changeVoterState
+                            .resetAddVoterHandlerState(Errors.NONE, null, Optional.empty());
+                    }
+                })
             );
     }
 

@@ -21,6 +21,7 @@ import org.apache.kafka.common.utils.Timer;
 
 import java.util.concurrent.CompletableFuture;
 
+// TODO: Add a future completion method and don't expose the future
 public final class RemoveVoterHandlerState {
     private final long lastOffset;
     private final Timer timeout;

@@ -17,6 +17,8 @@
 package org.apache.kafka.raft.internals;
 
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.raft.Endpoints;
+import org.apache.kafka.raft.LeaderAndEpoch;
 import org.apache.kafka.raft.RaftUtil;
 
 import java.util.Optional;
@@ -25,6 +27,8 @@ import java.util.Optional;
 public final class ChangeVoterHandlerState {
     private Optional<AddVoterHandlerState> addVoterHandlerState = Optional.empty();
     private Optional<RemoveVoterHandlerState> removeVoterHandlerState = Optional.empty();
+    private Optional<UpdateVoterHandlerState> updateVoterHandlerState = Optional.empty();
+
     private final KafkaRaftMetrics kafkaRaftMetrics;
 
     public ChangeVoterHandlerState(KafkaRaftMetrics kafkaRaftMetrics) {
@@ -40,6 +44,7 @@ public final class ChangeVoterHandlerState {
         String message,
         Optional<AddVoterHandlerState> state
     ) {
+        // TODO: move the completion to the hander state
         addVoterHandlerState.ifPresent(
             handlerState -> handlerState
                 .future()
@@ -58,6 +63,7 @@ public final class ChangeVoterHandlerState {
         String message,
         Optional<RemoveVoterHandlerState> state
     ) {
+        // TODO: move the completion to the hander state
         removeVoterHandlerState.ifPresent(
             handlerState -> handlerState
                 .future()
@@ -67,13 +73,47 @@ public final class ChangeVoterHandlerState {
         updateUncommittedVoterChangeMetric();
     }
 
+    public Optional<UpdateVoterHandlerState> updateVoterHandlerState() {
+        return updateVoterHandlerState;
+    }
+
+    public void resetUpdateVoterHandlerState(
+        Errors error,
+        LeaderAndEpoch leaderAndEpoch,
+        Endpoints leaderEndpoints,
+        Optional<UpdateVoterHandlerState> state
+    ) {
+        // TODO: move the completion to the hander state
+        updateVoterHandlerState.ifPresent(
+            handlerState -> handlerState
+                .future()
+                .complete(
+                    RaftUtil.updateVoterResponse(
+                        error,
+                        handlerState.requestListenerName(),
+                        leaderAndEpoch,
+                        leaderEndpoints
+                    )
+                )
+        );
+        updateVoterHandlerState = state;
+        updateUncommittedVoterChangeMetric();
+    }
+
     private void updateUncommittedVoterChangeMetric() {
         kafkaRaftMetrics.updateUncommittedVoterChange(
-            addVoterHandlerState.isPresent() || removeVoterHandlerState.isPresent()
+            addVoterHandlerState.isPresent() ||
+            removeVoterHandlerState.isPresent() ||
+            updateVoterHandlerState.isPresent()
         );
     }
 
-    public long maybeExpirePendingOperation(long currentTimeMs) {
+    // TODO: add update voter handler to this
+    public long maybeExpirePendingOperation(
+        LeaderAndEpoch leaderAndEpoch,
+        Endpoints leaderEndpoints,
+        long currentTimeMs
+    ) {
         // First abort any expired operations
         long timeUntilAddVoterExpiration = addVoterHandlerState()
             .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
@@ -91,14 +131,32 @@ public final class ChangeVoterHandlerState {
             resetRemoveVoterHandlerState(Errors.REQUEST_TIMED_OUT, null, Optional.empty());
         }
 
+        long timeUntilUpdateVoterExpiration = updateVoterHandlerState()
+            .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
+            .orElse(Long.MAX_VALUE);
+
+        if (timeUntilUpdateVoterExpiration == 0) {
+            resetUpdateVoterHandlerState(
+                Errors.REQUEST_TIMED_OUT,
+                leaderAndEpoch,
+                leaderEndpoints,
+                Optional.empty()
+            );
+        }
+
         // Reread the timeouts and return the smaller of them
         return Math.min(
             addVoterHandlerState()
                 .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
                 .orElse(Long.MAX_VALUE),
-            removeVoterHandlerState()
-                .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
-                .orElse(Long.MAX_VALUE)
+            Math.min(
+                removeVoterHandlerState()
+                    .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
+                    .orElse(Long.MAX_VALUE),
+                updateVoterHandlerState()
+                    .map(state -> state.timeUntilOperationExpiration(currentTimeMs))
+                    .orElse(Long.MAX_VALUE)
+            )
         );
     }
 
@@ -108,8 +166,22 @@ public final class ChangeVoterHandlerState {
         // TODO: request the update voter state
     }
 
-    public boolean isOperationPending(long currentTimeMs) {
-        maybeExpirePendingOperation(currentTimeMs);
-        return addVoterHandlerState.isPresent() || removeVoterHandlerState.isPresent();
+    public boolean isOperationPending(
+        LeaderAndEpoch leaderAndEpoch,
+        Endpoints leaderEndpoints,
+        long currentTimeMs
+    ) {
+        maybeExpirePendingOperation(leaderAndEpoch, leaderEndpoints, currentTimeMs);
+        return addVoterHandlerState.isPresent() || removeVoterHandlerState.isPresent() || updateVoterHandlerState.isPresent();
+    }
+
+    @Override
+    public String toString() {
+        return String.format(
+            "ChangeVoterHandlerState(addVoterHandlerState=%s, removeVoterHandlerState=%s, updateVoterHandlerState=%s)",
+            addVoterHandlerState,
+            removeVoterHandlerState,
+            updateVoterHandlerState
+        );
     }
 }
